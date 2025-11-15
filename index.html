@@ -575,6 +575,50 @@
         }
 
         // --- CALCULATION & CHART LOGIC ---
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_veNyJT-aBOa3mFaesSYQBCNQPVMdH4iCnU8dWjk0go0xpkMD4juzTY3dKciKXU7J/exec";
+
+        function submitData() {
+            const formData = new FormData();
+            
+            // Add timestamp
+            formData.append('Timestamp', new Date().toLocaleString('ja-JP'));
+
+            // Add user info
+            formData.append('user-name', document.getElementById('user-name').value);
+            formData.append('user-affiliation', document.getElementById('user-affiliation').value);
+
+            // Add skill levels
+            const prefixes = ['p', 's', 'e', 'm'];
+            prefixes.forEach(prefix => {
+                for (let i = 1; i <= 6; i++) {
+                    const id = prefix + i;
+                    formData.append(id, document.getElementById(id).value);
+                }
+            });
+
+            // Add total score
+            formData.append('totalScore', document.getElementById('total-score').textContent);
+
+            // Send data
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.result === 'success') {
+                    console.log('Data submitted successfully:', data.row);
+                    alert('診断結果をシートに記録しました。');
+                } else {
+                    throw new Error('Submission failed');
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting data:', error);
+                alert('データの記録に失敗しました。');
+            });
+        }
+
         let chartInstances = {};
         Chart.register(ChartDataLabels); // ChartDataLabels plugin is now used
         console.log('ChartDataLabels registered:', typeof ChartDataLabels !== 'undefined' ? ChartDataLabels.id : 'not defined'); // Debug log updated
@@ -767,6 +811,10 @@
                 // Show the entire results dashboard
                 const dashboard = document.getElementById('result-dashboard');
                 dashboard.style.display = 'block';
+                
+                // Submit data to Google Sheet
+                submitData();
+
                 dashboard.scrollIntoView({ behavior: 'smooth' });
 
             } catch (error) {
