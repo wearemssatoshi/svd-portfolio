@@ -579,15 +579,13 @@
 
         function submitData() {
             const formData = new FormData();
+            const calculateBtn = document.getElementById('calculate-btn');
+            const originalBtnText = calculateBtn.innerHTML;
             
-            // Add timestamp
             formData.append('Timestamp', new Date().toLocaleString('ja-JP'));
-
-            // Add user info
             formData.append('user-name', document.getElementById('user-name').value);
             formData.append('user-affiliation', document.getElementById('user-affiliation').value);
 
-            // Add skill levels
             const prefixes = ['p', 's', 'e', 'm'];
             prefixes.forEach(prefix => {
                 for (let i = 1; i <= 6; i++) {
@@ -596,10 +594,11 @@
                 }
             });
 
-            // Add total score
             formData.append('totalScore', document.getElementById('total-score').textContent);
 
-            // Send data
+            calculateBtn.innerHTML = '記録中...';
+            calculateBtn.disabled = true;
+
             fetch(SCRIPT_URL, {
                 method: 'POST',
                 body: formData
@@ -608,14 +607,20 @@
             .then(data => {
                 if (data.result === 'success') {
                     console.log('Data submitted successfully:', data.row);
-                    alert('診断結果をシートに記録しました。');
+                    calculateBtn.innerHTML = '記録しました！';
                 } else {
                     throw new Error('Submission failed');
                 }
             })
             .catch(error => {
                 console.error('Error submitting data:', error);
-                alert('データの記録に失敗しました。');
+                calculateBtn.innerHTML = '記録に失敗';
+            })
+            .finally(() => {
+                setTimeout(() => {
+                    calculateBtn.innerHTML = originalBtnText;
+                    calculateBtn.disabled = false;
+                }, 3000);
             });
         }
 
@@ -871,169 +876,97 @@
         });
 
         async function downloadPdf() {
-            console.log('downloadPdf function called.'); // Debug log
             console.log('PDFダウンロード処理を開始します。');
             const resultDashboard = document.getElementById('result-dashboard');
             if (resultDashboard.style.display === 'none') {
                 alert('診断結果が表示されていません。まず診断を実行してください。');
-                console.log('エラー: 診断結果が表示されていません。');
                 return;
             }
 
             const downloadPdfBtn = document.getElementById('download-pdf-btn');
-            downloadPdfBtn.style.display = 'none'; // Temporarily hide the button itself for the screenshot
+            const originalBtnDisplay = downloadPdfBtn.style.display;
+            downloadPdfBtn.style.display = 'none';
 
-            const chartGrid = document.getElementById('chart-grid');
-            const originalChartGridDisplay = chartGrid.style.display; // Store original display style
-            chartGrid.style.display = 'none'; // Temporarily hide chart grid
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            pdf.addFont("NotoSansJP", "NotoSansJP", "normal");
+            pdf.setFont("NotoSansJP");
 
-            const userName = document.getElementById('user-name').value || '診断者';
-            const pdfFileName = `${userName}_SVD_Talent_Intelligence_Report.pdf`;
-            console.log(`PDFファイル名: ${pdfFileName}`);
+            const margin = 15;
+            const pdfPageWidth = pdf.internal.pageSize.getWidth();
+            const contentWidth = pdfPageWidth - (margin * 2);
 
             try {
-                console.log('html2canvasで要素をキャプチャします...');
-                const canvas = await html2canvas(resultDashboard, {
-                    scale: 3, // Increase scale for better resolution
-                    useCORS: true, // Enable CORS if external images are used
-                    windowWidth: resultDashboard.scrollWidth,
-                    windowHeight: resultDashboard.scrollHeight,
-                    logging: true, // Enable logging for html2canvas
-                    backgroundColor: '#FFFFFF', // Explicitly set background color to white
-                    onclone: (clonedDoc) => {
-                        // Ensure all accordions are open in the cloned document for capture
-                        clonedDoc.querySelectorAll('.accordion-item').forEach(item => {
-                            item.classList.add('active');
-                            const content = item.querySelector('.accordion-content');
-                            if (content) {
-                                content.style.maxHeight = 'fit-content'; // Ensure content is visible
-                                content.style.overflow = 'visible';
-                            }
-                        });
-
-                        // Explicitly re-apply gradient for advice-card
-                        clonedDoc.querySelector('.advice-card').style.setProperty('background', 'linear-gradient(45deg, #1A237E, #3949AB)', 'important');
-                        clonedDoc.querySelector('.advice-card h3').style.setProperty('color', 'white', 'important');
-                        clonedDoc.querySelector('.advice-card #advice-text').style.setProperty('color', 'white', 'important');
-                    }
-                });
-                console.log('html2canvasによるキャプチャが完了しました。');
-
-                chartGrid.style.display = originalChartGridDisplay; // Restore chart grid display
-
-                const imgData = canvas.toDataURL('image/png');
-                const { jsPDF } = window.jspdf;
-                const pdf = new jspdf.jsPDF('p', 'mm', 'a4'); // Portrait, millimeters, A4 size
-
-                // Register Noto Sans JP font globally
-                pdf.addFont("NotoSansJP", "NotoSansJP", "normal");
-                pdf.setFont("NotoSansJP"); // Set Noto Sans JP as the default font for all text
-
-                const imgWidth = 210; // A4 width in mm
-                const pageHeight = 297; // A4 height in mm
-                const imgHeight = canvas.height * imgWidth / canvas.width;
-                let heightLeft = imgHeight;
-
-                let position = 0;
-
-                console.log('PDFに画像を追加します...');
-                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-                heightLeft -= pageHeight;
-
-                // Add a significant vertical offset after the main image before starting charts
-                let currentY = imgHeight + 20; // Start charts 20mm below the main content image
-                if (currentY > pageHeight - 50) { // If not enough space for first chart, add new page
-                    pdf.addPage();
-                    currentY = 20; // Start from top of new page
-                }
-
-                // If the main content spanned multiple pages, adjust currentY accordingly
-                if (heightLeft > 0) {
-                    // This scenario means the main content itself took multiple pages.
-                    // We need to start charts on a new page after the main content is fully rendered.
-                    pdf.addPage();
-                    currentY = 20; // Start from top of new page
-                }
+                // --- Add Main Content ---
+                const mainContentCanvas = await html2canvas(document.querySelector('.total-score-card'), { scale: 3, backgroundColor: null });
+                const mainContentImgData = mainContentCanvas.toDataURL('image/png');
+                const mainContentAspectRatio = mainContentCanvas.height / mainContentCanvas.width;
+                const mainContentImgHeight = contentWidth * mainContentAspectRatio;
+                pdf.addImage(mainContentImgData, 'PNG', margin, margin, contentWidth, mainContentImgHeight, undefined, 'FAST');
                 
-                // --- Add Charts to PDF ---
-                // Define PDF page dimensions for calculations
-                const pdfPageWidth = pdf.internal.pageSize.getWidth();
-                const pdfPageHeight = pdf.internal.pageSize.getHeight();
-                const margin = 15; // mm
+                const breakdownCanvas = await html2canvas(document.querySelector('.score-breakdown'), { scale: 3, backgroundColor: null });
+                const breakdownImgData = breakdownCanvas.toDataURL('image/png');
+                const breakdownAspectRatio = breakdownCanvas.height / breakdownCanvas.width;
+                const breakdownImgHeight = contentWidth * breakdownAspectRatio;
+                pdf.addImage(breakdownImgData, 'PNG', margin, margin + mainContentImgHeight + 10, contentWidth, breakdownImgHeight, undefined, 'FAST');
 
+                const adviceCanvas = await html2canvas(document.querySelector('.advice-card'), { scale: 3, backgroundColor: '#1A237E' });
+                const adviceImgData = adviceCanvas.toDataURL('image/png');
+                const adviceAspectRatio = adviceCanvas.height / adviceCanvas.width;
+                const adviceImgHeight = contentWidth * adviceAspectRatio;
+                pdf.addImage(adviceImgData, 'PNG', margin, margin + mainContentImgHeight + breakdownImgHeight + 20, contentWidth, adviceImgHeight, undefined, 'FAST');
+
+                // --- Add Charts ---
+                pdf.addPage();
+                let currentY = margin;
                 const chartKeys = Object.keys(chartInstances);
                 const chartsPerRow = 2;
-                const chartWidth = (pdfPageWidth - (margin * (chartsPerRow + 1))) / chartsPerRow; // Calculate width for 2 charts with margins
-                const chartTitleHeight = 15; // Space for title and padding
+                const chartWidth = (pdfPageWidth - (margin * (chartsPerRow + 1))) / chartsPerRow;
 
-                for (let i = 0; i < chartKeys.length; i += chartsPerRow) {
-                    // Check if new page is needed for the current row of charts
-                    // Estimate height for the row: max height of 2 charts + titles + spacing
-                    let estimatedRowHeight = 0;
-                    let maxChartHeightInRow = 0;
+                for (let i = 0; i < chartKeys.length; i++) {
+                    const category = chartKeys[i];
+                    const chartCanvas = chartInstances[category].canvas;
+                    const chartImgData = chartCanvas.toDataURL('image/png', 1.0);
+                    const chartAspectRatio = chartCanvas.height / chartCanvas.width;
+                    const chartHeight = chartWidth * chartAspectRatio;
 
-                    for (let j = 0; j < chartsPerRow && (i + j) < chartKeys.length; j++) {
-                        const category = chartKeys[i + j];
-                        const chartCanvas = chartInstances[category].canvas;
-                        const chartAspectRatio = chartCanvas.width / chartCanvas.height;
-                        const currentChartHeight = chartWidth / chartAspectRatio;
-                        if (currentChartHeight > maxChartHeightInRow) {
-                            maxChartHeightInRow = currentChartHeight;
+                    const rowIndex = Math.floor(i / chartsPerRow);
+                    const colIndex = i % chartsPerRow;
+
+                    if (colIndex === 0 && i > 0) {
+                         // Find max height of previous row to position the new row
+                        let prevRowMaxHeight = 0;
+                        for(let k = 1; k <= chartsPerRow; k++){
+                            const prevChartCanvas = chartInstances[chartKeys[i-k]].canvas;
+                            const prevChartHeight = chartWidth * (prevChartCanvas.height / prevChartCanvas.width);
+                            if(prevChartHeight > prevRowMaxHeight) prevRowMaxHeight = prevChartHeight;
                         }
+                        currentY += prevRowMaxHeight + 25; // Add title height and spacing
                     }
-                    estimatedRowHeight = maxChartHeightInRow + chartTitleHeight + 20; // Chart height + title + spacing
-
-                    if (currentY + estimatedRowHeight > pdfPageHeight - margin) {
+                    
+                    if (currentY + chartHeight + 25 > pdf.internal.pageSize.getHeight() && i > 0) {
                         pdf.addPage();
                         currentY = margin;
                     }
+                    
+                    const xPos = margin + (colIndex * (chartWidth + margin));
 
-                    let rowMaxY = currentY; // Track the lowest point in the current row
-
-                    for (let j = 0; j < chartsPerRow && (i + j) < chartKeys.length; j++) {
-                        const category = chartKeys[i + j];
-                        const chartCanvas = chartInstances[category].canvas;
-
-                        // Explicitly set canvas background to white before toDataURL
-                        const originalBackgroundColor = chartCanvas.style.backgroundColor;
-                        chartCanvas.style.backgroundColor = '#FFFFFF';
-
-                        const chartImgData = chartCanvas.toDataURL('image/png', 1.0); // Get chart image data
-                        
-                        // Restore original background color
-                        chartCanvas.style.backgroundColor = originalBackgroundColor;
-
-                        const chartAspectRatio = chartCanvas.width / chartCanvas.height;
-                        const currentChartHeight = chartWidth / chartAspectRatio;
-
-                        const xPos = margin + (j * (chartWidth + margin)); // X position for current chart
-
-                        // Add category title for the chart
-                        // Font is already set globally
-                        pdf.setFontSize(14);
-                        pdf.setTextColor(38, 50, 56); // text-color
-                        pdf.text(category, xPos, currentY + 10); // Title position
-
-                        // Add chart image to PDF
-                        pdf.addImage(chartImgData, 'PNG', xPos, currentY + chartTitleHeight + 5, chartWidth, currentChartHeight, undefined, 'NONE'); // Added compression: 'NONE'
-                        
-                        if (currentY + chartTitleHeight + 5 + currentChartHeight + 10 > rowMaxY) {
-                            rowMaxY = currentY + chartTitleHeight + 5 + currentChartHeight + 10;
-                        }
-                    }
-                    currentY = rowMaxY + 10; // Move Y position down for next row, with extra spacing
+                    pdf.setFontSize(14);
+                    pdf.setTextColor(38, 50, 56);
+                    pdf.text(category, xPos, currentY + 5);
+                    
+                    pdf.addImage(chartImgData, 'PNG', xPos, currentY + 8, chartWidth, chartHeight, undefined, 'FAST');
                 }
 
-                pdf.save(pdfFileName);
-                console.log('PDFの保存を指示しました。');
+                const userName = document.getElementById('user-name').value || '診断者';
+                pdf.save(`${userName}_SVD_Talent_Intelligence_Report.pdf`);
                 alert('PDFのダウンロードが完了しました！');
 
             } catch (error) {
                 console.error("PDF生成中にエラーが発生しました:", error);
                 alert(`致命的なエラーが発生しました。開発者にご連絡ください。\n\n${error.stack}`);
             } finally {
-                downloadPdfBtn.style.display = 'block'; // Show the button again
-                console.log('PDFダウンロード処理を終了します。');
+                downloadPdfBtn.style.display = originalBtnDisplay;
             }
         }
     </script>
